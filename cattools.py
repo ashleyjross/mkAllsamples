@@ -54,9 +54,10 @@ def fiber_collision(cat, apply_noz=1,type='ELG'):
 	if type == 'ELG':
 		all_imatch = np.zeros(cat.size, dtype=int)
 		for i in range(0,cat.size):
-			if cat[i]['hasfiber'] == True:
+			if cat[i]['hasfiber'] == 1:
 				all_imatch[i] = 1
-		all_dups = np.copy(cat['isdupl'])		
+		all_dups = np.copy(cat['isdupl'])	
+		all_ids = np.copy(cat['decals_objid'])	
 		#np.copy(cat['hasfiber']) #ELG equivalent?
 	all_weight_cp = np.ones(cat.size)
 	#all_weight_noz = N.ones(self.size)
@@ -67,28 +68,44 @@ def fiber_collision(cat, apply_noz=1,type='ELG'):
 	all_gal_in_sector_bad = np.zeros(cat.size, dtype=int)
 	all_cp_pair_over_poss = np.zeros(cat.size)
 	all_cp_gal_over_poss = np.zeros(cat.size)
+	all_compboss = np.zeros(cat.size) #completeness counting close pairs as observations
+	all_compreal= np.zeros(cat.size) #completeness just n_withfib/n_tot
+	all_cp_match = np.zeros(cat.size) #this will hold the index of the colliding galaxy
+	all_index = np.zeros(cat.size) #this will hold the index of the target galaxies
+	for i in range(0,cat.size):
+		all_index[i] = i
 
 
 
 	print 'Solving fiber collisions in ', unique_sectors.size, 'sectors' 
 	for i, sect in enumerate(unique_sectors):
 		if type == 'ELG':
-			w = (sectors == sect) & (all_dups == 0) #& all_imatch == True#& (all_imatch != 2) & (self.vetobits == 0)
-
+			w = (sectors == sect) & (all_dups == False) #& all_imatch == True#& (all_imatch != 2) & (self.vetobits == 0)
+			#w2 = (sectors == sect) & (all_dups == 1)
+			w2 = (sectors == sect) & (all_dups == 0) & (cat['sector_TSR'] != 0)
 		plates = np.unique(cat['PLATE'][w])
 
 		z = all_z[w]
+		index = all_ids[w]
+		cp_match = all_cp_match[w]
 		imatch = all_imatch[w]
 		weight_cp = np.zeros(z.size)
+		nspec = sum(imatch>0)
+		compreal = sum(imatch)/(float(np.sum(w)))
+		#if np.mean(cat['sector_TSR'][w]) == 0:
+		
+		all_compreal[w] = compreal
 	   
 		#if (imatch==0).all():
 		#	continue
-
-		print '  %d of %d'%(i, unique_sectors.size), \
-			  '\tSector#:', sect,\
-			  '\tTargets:', np.sum(w), \
-			  '\tnplates:', len(plates),\
-			  '\tnspec:', sum(imatch>0)
+		if abs(1.-compreal/np.mean(cat['sector_TSR'][w2])) > .01:# == 0:
+			print compreal,np.mean(cat['sector_TSR'][w2])#,np.sum(w2)
+			print '  %d of %d'%(i, unique_sectors.size), \
+				  '\tSector#:', sect,\
+				  '\tTargets:', np.sum(w), \
+				  '\tnplates:', len(plates),\
+				  '\tnspec:', sum(imatch>0)#,\
+			  #'\tnduplicates:', np.sum(w2))
 
 		#-- call to spheregroup for galaxies (with new redshifts) in this sector
 		#-- with linking length of 62''.
@@ -124,6 +141,7 @@ def fiber_collision(cat, apply_noz=1,type='ELG'):
 			#-- solving collision
 			elif imatch1 == 0 and imatch2 !=0 and imatch2 != 3:
 				z[pair[0]] = z[pair[1]]
+				cp_match[pair[0]] = index[pair[1]]
 				imatch[pair[0]] = 3
 				imatch1 = 3
 				weight_cp[pair[1]] += 1
@@ -132,6 +150,7 @@ def fiber_collision(cat, apply_noz=1,type='ELG'):
 
 			elif imatch2 == 0 and imatch1 !=0 and imatch1 != 3:
 				z[pair[1]] = z[pair[0]]
+				cp_match[pair[1]] = index[pair[0]]
 				imatch[pair[1]] = 3
 				imatch2 = 3
 				weight_cp[pair[0]] += 1
@@ -152,15 +171,22 @@ def fiber_collision(cat, apply_noz=1,type='ELG'):
 			cp_pair_over_poss = 0.
 			cp_gal_over_poss = 0.
 
-		print '  Close-pairs:', len(pairs)
-		print '     pairs numbers :', pair_in_sector_good, \
-					pair_in_sector_tot, cp_pair_over_poss 
-		print '     galaxy numbers:', gal_in_sector_good,  \
-					gal_in_sector_bad, cp_gal_over_poss
+		#if np.mean(cat['sector_TSR'][w]) == 0:
 		#print min(weight_cp),max(weight_cp)
 		all_z[w] = z
+		all_cp_match[w] = cp_match
 		all_imatch[w] = imatch
 		all_weight_cp[w] += weight_cp
+		compboss = (nspec+np.sum(weight_cp))/float(np.sum(w))
+		all_compboss[w] = compboss
+		if abs(1.-compreal/np.mean(cat['sector_TSR'][w2])) > .01:
+			print '  Close-pairs:', len(pairs)
+			print '     pairs numbers :', pair_in_sector_good, \
+						pair_in_sector_tot, cp_pair_over_poss 
+			print '     galaxy numbers:', gal_in_sector_good,  \
+						gal_in_sector_bad, cp_gal_over_poss
+
+			print compboss,compreal
 		all_pair_in_sector_good[w] = pair_in_sector_good
 		all_pair_in_sector_tot[w] = pair_in_sector_tot
 		all_gal_in_sector_good[w] = gal_in_sector_good
@@ -248,7 +274,7 @@ def fiber_collision(cat, apply_noz=1,type='ELG'):
 			all_weight_noz[ww] = weight_noz
    
 	##-- end loop over regions
-	return all_weight_cp,all_imatch
+	return all_weight_cp,all_imatch,all_cp_match,all_compreal,all_compboss
 	#self.Z = all_z
 	#self.IMATCH = all_imatch
 	#self.WEIGHT_CP = all_weight_cp
