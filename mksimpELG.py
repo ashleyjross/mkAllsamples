@@ -7,6 +7,8 @@ from astropy.io import fits
 import numpy as np
 import fitsio #reading in entire file with fitsio is much faster than with astropy
 from cattools import fiber_collision
+from matplotlib import pyplot as plt
+from math import *
 
 def mkgalELG_specfull(reg='SGC',v='v5_10_7',vo='test'):
 	'''
@@ -179,6 +181,7 @@ def mkranELGsimp(reg='SGC',v='v5_10_7',compl=0.5,vo='test'):
 	zl = []
 	fkpweightl = []
 	sysweightl = []
+	gdepthl = []
 	#for j in range(0,len(chunkl)):
 	#f = fits.open(dir+'eboss'+chunkl[j]+'.'+v+'.latest.fits')[1].data
 	#f = fitsio.read(dir+'eboss'+chunkl[j]+'.'+v+'.latest.rands.fits')
@@ -202,7 +205,7 @@ def mkranELGsimp(reg='SGC',v='v5_10_7',compl=0.5,vo='test'):
 			zl.append(z)
 			fkpweightl.append(fkpw)
 			sysweightl.append(wsys) 
-			
+			gdepthl.append(f[i]['galdepth_g'])			
 	print sum(sysweightl)/10000.
 	print len(ral)
 	ral = np.array(ral)
@@ -222,6 +225,8 @@ def mkranELGsimp(reg='SGC',v='v5_10_7',compl=0.5,vo='test'):
 	cols.append(fkpc)
 	sysc = fits.Column(name='WEIGHT_SYSTOT',format='D', array=sysweightl)
 	cols.append(sysc)
+	dc = fits.Column(name='galdepth_g',format='D', array=gdepthl)
+	cols.append(dc)
 	
 	hdulist = fits.BinTableHDU.from_columns(cols)
 	header = hdulist.header
@@ -240,10 +245,12 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 	dat = fitsio.read(dir+'ELG'+reg+vo+'.dat.fits')
 	dat.sort(order='galdepth_g')
 	depthl  = [] #subsample by factor of 100 to make smaller list to get percentiles
+	ndep = 0
 	for i in range(0,dat.size,100):
 		depthl.append(dat[i]['galdepth_g'])
+		ndep += 1.
 	depthl = np.array(depthl)
-	#depthl = dat['galdepth_g']#.sort()
+	gdepthl = [] #list to write back out
 	print len(dat['Z'])
 	ral = []
 	decl = []
@@ -265,7 +272,7 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 		if f[i]['sector_TSR'] >= compl and kc == 1:
 			depth = f[i]['galdepth_g']
 			#per = dat[dat['galdepth_g']>depth].size/float(ndat)
-			per = depthl[depthl>depth].size/float(ndat)
+			per = 1.-depthl[depthl>depth].size/ndep
 			#perd = 90
 			#peru = 100
 			#if per > 0.05 and per < 0.95:
@@ -301,6 +308,7 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 			fkpw = dat[indd+indz]['WEIGHT_FKP']
 			wsys = dat[indd+indz]['WEIGHT_SYSTOT']*f[i]['sector_TSR']#*f[i]['plate_SSR']
 			ra,dec = f[i]['ra'],f[i]['dec']
+			gdepthl.append(f[i]['galdepth_g'])	
 			ral.append(ra)
 			decl.append(dec)
 			zl.append(z)
@@ -325,9 +333,176 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 	cols.append(fkpc)
 	sysc = fits.Column(name='WEIGHT_SYSTOT',format='D', array=sysweightl)
 	cols.append(sysc)
+	dc = fits.Column(name='galdepth_g',format='D', array=gdepthl)
+	cols.append(dc)
 	
 	hdulist = fits.BinTableHDU.from_columns(cols)
 	header = hdulist.header
 	hdulist.writeto(dir+'ELG'+reg+vo+'gdepth.ran.fits', overwrite=True)
 
+	return True
+
+def testnz(reg,ver='test',zmin=0,zmax=1.5):
+	f = fitsio.read(dir+'ELG'+reg+ver+'gdepth.ran.fits')
+	fd = fitsio.read(dir+'ELG'+reg+ver+'.dat.fits')
+	print np.percentile(f['galdepth_g'],50),np.percentile(fd['galdepth_g'],50)
+	spl = np.percentile(fd['galdepth_g'],50)
+	nzl = []
+	nzlr = []
+	nzlh = []
+	nzlhr = []
+
+	zl = []
+	ni = int(100*(zmax-zmin))
+	for i in range(0,ni):
+		zl.append(zmin+.005+.01*i)
+		nzl.append(0)
+		nzlr.append(0)
+		nzlh.append(0)
+		nzlhr.append(0)
+
+	for i in range(0,f.size):
+		zind = int((f[i]['Z']-zmin)*100)
+		if f[i]['galdepth_g'] > spl:
+			nzlhr[zind] += 1.
+		else:
+			nzlr[zind] += 1.
+	for i in range(0,fd.size):
+		zind = int((fd[i]['Z']-zmin)*100)
+		if fd[i]['galdepth_g'] > spl:
+			nzlh[zind] += 1.
+		else:
+			nzl[zind] += 1.
+	plt.plot(zl,np.array(nzl)/sum(nzl),	zl,np.array(nzlr)/sum(nzlr))
+	plt.show()
+	plt.plot(zl,np.array(nzlh)/sum(nzlh),zl,	np.array(nzlhr)/sum(nzlhr))
+	plt.show()
+	plt.plot(zl,np.array(nzlr)/sum(nzlr),zl,	np.array(nzlhr)/sum(nzlhr))
+	plt.show()
+
+	return True
+	
+			
+def ngvdepth(reg,ver,zmin,zmax,sysmin=0,sysmax=10000,sys='galdepth_g'):
+	#sample is the sample being used, e.g. 'lrg'
+	stl = []
+	wstl = []
+	errl = []
+	binng = []
+	binnr = []
+	binnrd = []
+	nsysbin = 10 #10 bins are being used
+	for i in range(0,nsysbin):
+		binng.append(0)
+		binnr.append(0)
+		binnrd.append(0)
+
+	
+	nr = 0
+	nrd = 0
+	sysm = float(nsysbin)/(sysmax-sysmin)
+	bs = 0
+	bsr = 0
+	bsrd = 0
+
+	f = fitsio.read(dir+'ELG'+reg+ver+'.ran.fits') #read rands, no depth adjustment
+	for i in range (0,len(f)):
+		if f[i]['Z'] > zmin and f[i]['Z'] < zmax:
+			w = f[i]['WEIGHT_SYSTOT']*f[i]['WEIGHT_FKP']
+			sysv = f[i]['galdepth_g']
+			bins = int((sysv-sysmin)*sysm)
+			if bins >= 0 and bins < nsysbin:
+				binnr[bins] += w
+			else:
+				bsr += w
+
+			nr += w
+	print min(f[sys]),max(f[sys])
+	print nr
+
+	f = fitsio.read(dir+'ELG'+reg+ver+'gdepth.ran.fits') #read rands, with depth adjustment
+	for i in range (0,len(f)):
+		if f[i]['Z'] > zmin and f[i]['Z'] < zmax:
+			w = f[i]['WEIGHT_SYSTOT']*f[i]['WEIGHT_FKP']
+			sysv = f[i]['galdepth_g']
+			bins = int((sysv-sysmin)*sysm)
+			if bins >= 0 and bins < nsysbin:
+				binnrd[bins] += w
+			else:
+				bsrd += w
+
+			nrd += w
+	print min(f[sys]),max(f[sys])
+	print nrd
+
+
+	f = fitsio.read(dir+'ELG'+reg+ver+'.dat.fits') #read galaxy file
+	
+	no = 0
+	zm = 0
+	nt = 0
+	avebs = 0
+	sysstr = sys.split('_')
+	
+	for i in range (0,len(f)):
+		z = f[i]['Z']
+		if z > zmin and z < zmax:
+			no += 1
+			w = f[i]['WEIGHT_SYSTOT']*f[i]['WEIGHT_FKP']
+			sysv = f[i]['galdepth_g']
+			bins = int((sysv-sysmin)*sysm)
+			
+					
+			if bins >= 0 and bins < nsysbin:
+				binng[bins] += 1.*w
+			else:
+				bs += w #count numbers outside of sysmin/sysmax
+				avebs += w*sysv
+			zm += w*z
+			nt += w
+			
+	if bs > 0:
+		avebs = avebs/bs
+	print avebs,sysmin		
+	print 'total number, weighted number'
+	print no,nt
+	print 'mean redshift'
+	print zm/nt
+
+	print 'total number of randoms/objects '+str(nr)+'/'+str(nt)
+	print 'number of randoms/objects outside tested range '+str(bsr)+'/'+str(bs)			
+	ave = nt/nr
+	aved = nt/nrd
+	print 'average number of objects per random is '+ str(ave)+' '+str(aved)
+	fs = open('n'+'gELG'+reg+'_'+ver+'_mz'+str(zmin)+'xz'+str(zmax)+'v'+sys+'.dat','w')
+	xl = []
+	yl = []
+	el = []
+	yld = []
+	eld = []
+	for i in range(0,nsysbin):
+		sysv = sysmin + 1./(2.*sysm) + i/sysm
+		if binnr[i] > 0:
+			ns = binng[i]/binnr[i]/ave
+			nsd = binng[i]/binnrd[i]/aved
+			nse = sqrt(binng[i]/(binnr[i])**2./(ave)**2.+(binng[i]/ave)**2./(binnr[i])**3.) #calculate poisson error
+			nsed = sqrt(binng[i]/(binnrd[i])**2./(aved)**2.+(binng[i]/aved)**2./(binnrd[i])**3.) #calculate poisson error
+		else:
+			ns = 1. #write out 1.0 1.0 if no pixels at given value of sys
+			nse = 1.	
+			nsd = 1.
+			nsed = 1.	
+		fs.write(str(sysv)+' '+str(ns)+' '+str(nse)+' '+str(nsd)+' '+str(nsed)+'\n')
+		xl.append(sysv)
+		yl.append(nsd)
+		el.append(nsed)
+		yld.append(ns)
+		eld.append(nse)
+
+	fs.close()
+	chin = sum((np.array(yl)-1.)**2./np.array(el)**2.)
+	print chin
+	plt.errorbar(xl,yl,el,fmt='ko')
+	plt.errorbar(xl,yld,eld,fmt='^r')
+	plt.show()	
 	return True
