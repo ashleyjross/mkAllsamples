@@ -239,6 +239,10 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 	ffkp = np.loadtxt('nbarELG'+reg+v+'.dat').transpose()
 	dat = fitsio.read(dir+'ELG'+reg+vo+'.dat.fits')
 	dat.sort(order='galdepth_g')
+	depthl  = [] #subsample by factor of 100 to make smaller list to get percentiles
+	for i in range(0,dat.size,100):
+		depthl.append(dat[i]['galdepth_g'])
+	depthl = np.array(depthl)
 	#depthl = dat['galdepth_g']#.sort()
 	print len(dat['Z'])
 	ral = []
@@ -260,7 +264,8 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 
 		if f[i]['sector_TSR'] >= compl and kc == 1:
 			depth = f[i]['galdepth_g']
-			per = dat[dat['galdepth_g']>depth].size/float(ndat)
+			#per = dat[dat['galdepth_g']>depth].size/float(ndat)
+			per = depthl[depthl>depth].size/float(ndat)
 			#perd = 90
 			#peru = 100
 			#if per > 0.05 and per < 0.95:
