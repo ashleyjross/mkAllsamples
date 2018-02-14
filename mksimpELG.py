@@ -42,6 +42,19 @@ def mkgalELG_specfull(reg='SGC',v='v5_10_7',vo='test'):
 	#comptot should be n_fib/n_targ and should match Anand's calculation
 	#compboss should match
 	
+	#create a file with sector,comptot,compboss
+	fo = open('ELG'+reg+'compstats'+vo+'.dat','w')
+	
+	complt = np.zeros(max(sectorl)-min(sectorl)+1)
+	complb = np.zeros(max(sectorl)-min(sectorl)+1)
+	for i in range(0,len(sectorl)):
+		sec = sectorl[i]
+		complt[sec] = comptot[i]
+		complb[sec] = compboss[i]
+	for i in range(min(sectorl),max(sectorl)+1):
+		fo.write('#sector COMP_TSR COMP_BOSS\n')
+		fo.write(str(i)+' '+str(complt[i])+ ' '+str(complb[i])+'\n')
+	fo.close()
 	for i in range(0,freg.size):
 		of = cp[i]
 		if freg[i]['Z_reliable'] == False:
@@ -93,7 +106,8 @@ def mkgalELG_specfull(reg='SGC',v='v5_10_7',vo='test'):
 	return True		
 
 
-def mkgalELGsimp(reg='SGC',v='v5_10_7',compl=0.5,zmin=0,zmax=1.5,vo='test'):
+def mkgalELGsimp_fromAR(reg='SGC',v='v5_10_7',compl=0.5,zmin=0,zmax=1.5,vo='test'):
+	#make the file directly from Anand's files
 #zmin=.6,zmax=1.1,samp='21',v='v5_10_7',c='sci',app='.fits',compl=0,compls=0,fkp='fkp',wm='wstar',zm=''):
 	#from healpix import healpix, radec2thphi
 	#if c == 'sci': #AJR uses this define directory for machine he uses
@@ -167,46 +181,45 @@ def mkgalELGsimp(reg='SGC',v='v5_10_7',compl=0.5,zmin=0,zmax=1.5,vo='test'):
 	
 	return True		
 
-def mkranELGsimp(reg='SGC',v='v5_10_7',compl=0.5,vo='test'):
-	from random import random
+def mkgalELGsimp(reg='SGC',v='test',complim=0.5,zmin=0,zmax=1.5,vo='test',cp='cp'):
+	#make the file the full file
 	if reg == 'SGC':
 		chunkl = ['eboss21','eboss22']			
 	if reg == 'NGC':
 		chunkl = ['eboss23','eboss25']			
+
 	ffkp = np.loadtxt('nbarELG'+reg+v+'.dat').transpose()
-	dat = fitsio.read(dir+'ELG'+reg+vo+'.dat.fits')
-	print len(dat['Z'])
 	ral = []
 	decl = []
 	zl = []
 	fkpweightl = []
 	sysweightl = []
-	gdepthl = []
+	gdepthl = [] #to maybe be used for weights 
 	#for j in range(0,len(chunkl)):
-	#f = fits.open(dir+'eboss'+chunkl[j]+'.'+v+'.latest.fits')[1].data
-	#f = fitsio.read(dir+'eboss'+chunkl[j]+'.'+v+'.latest.rands.fits')
-	f = fitsio.read(dir+'ELG.'+v+'.latest.rands.fits')
-	
-	print len(f), compl
+		#f = fits.open(dir+'eboss'+chunkl[j]+'.'+v+'.latest.fits')[1].data
+		#f = fitsio.read(dir+'eboss'+chunkl[j]+'.'+v+'.latest.fits')
+	f = fitsio.read(dir+'ELG'+reg+v+'full.dat.fits')
 	for i in range(0,len(f)):
 		#z = f.Z[i]
-		kc = 0
-		if f[i]['chunk'] == chunkl[0] or f[i]['chunk'] == chunkl[1]:
-			kc = 1		
-
-		if f[i]['sector_TSR'] >= compl and kc == 1:
-			indz = int(random()*len(dat['Z']))
-			z = dat[indz]['Z']
-			fkpw = dat[indz]['WEIGHT_FKP']
-			wsys = dat[indz]['WEIGHT_SYSTOT']*f[i]['sector_TSR']#*f[i]['plate_SSR']
-			ra,dec = f[i]['ra'],f[i]['dec']
+		z = f[i]['Z']
+		w =1.
+		if cp == 'cp':
+			comp = f[i]['COMP_BOSS']
+			w = f[i]['WEIGHT_CP']
+		if cp == '':
+			comp = f[i]['COMP_TSR']
+		
+		if z > zmin and z < zmax and comp > complim and f[i]['TYPE_FLAG'] == 1:
+			ra,dec = f[i]['RA'],f[i]['DEC']
 			ral.append(ra)
 			decl.append(dec)
 			zl.append(z)
+			zind = int(z/.01)
+			fkpw = ffkp[-1][zind]
 			fkpweightl.append(fkpw)
-			sysweightl.append(wsys) 
-			gdepthl.append(f[i]['galdepth_g'])			
-	print sum(sysweightl)/10000.
+			sysweightl.append(w) 
+			gdepthl.append(f[i]['galdepth_g'])
+
 	print len(ral)
 	ral = np.array(ral)
 	decl = np.array(decl)
@@ -225,16 +238,93 @@ def mkranELGsimp(reg='SGC',v='v5_10_7',compl=0.5,vo='test'):
 	cols.append(fkpc)
 	sysc = fits.Column(name='WEIGHT_SYSTOT',format='D', array=sysweightl)
 	cols.append(sysc)
-	dc = fits.Column(name='galdepth_g',format='D', array=gdepthl)
-	cols.append(dc)
+	depthc = fits.Column(name='galdepth_g',format='D', array=gdepthl)
+	cols.append(depthc)
 	
 	hdulist = fits.BinTableHDU.from_columns(cols)
 	header = hdulist.header
-	hdulist.writeto(dir+'ELG'+reg+vo+'.ran.fits', overwrite=True)
+	hdulist.writeto(dir+'ELG'+reg+vo+cp+'.dat.fits', overwrite=True)
+	
+	return True		
+
+
+def mkranELGsimp(reg='SGC',v='v5_10_7',complim=0.5,vo='test',cp='cp'):
+	from random import random
+	if reg == 'SGC':
+		chunkl = ['eboss21','eboss22']			
+	if reg == 'NGC':
+		chunkl = ['eboss23','eboss25']			
+	ffkp = np.loadtxt('nbarELG'+reg+v+'.dat').transpose()
+	dat = fitsio.read(dir+'ELG'+reg+vo+cp+'.dat.fits')
+	print len(dat['Z'])
+	compf = np.loadtxt('ELG'+reg+'compstats'+vo+'.dat').transpose()
+	sec0 = compf[0][0]
+	ral = []
+	decl = []
+	zl = []
+	fkpweightl = []
+	sysweightl = []
+	gdepthl = []
+	compl = []
+	#for j in range(0,len(chunkl)):
+	#f = fits.open(dir+'eboss'+chunkl[j]+'.'+v+'.latest.fits')[1].data
+	#f = fitsio.read(dir+'eboss'+chunkl[j]+'.'+v+'.latest.rands.fits')
+	f = fitsio.read(dir+'ELG.'+v+'.latest.rands.fits')
+	
+	print len(f), complim
+	for i in range(0,len(f)):
+		#z = f.Z[i]
+		kc = 0
+		if f[i]['chunk'] == chunkl[0] or f[i]['chunk'] == chunkl[1]:
+			kc = 1		
+		sec = f[i]['sector']
+		if cp == '':
+			comp = compf[1][sec-sec0]
+		if cp == 'cp':
+			comp = compf[2][sec-sec0]
+		if comp >= complim and kc == 1:
+			indz = int(random()*len(dat['Z']))
+			z = dat[indz]['Z']
+			fkpw = dat[indz]['WEIGHT_FKP']
+			wsys = dat[indz]['WEIGHT_SYSTOT']*comp#*f[i]['plate_SSR']
+			ra,dec = f[i]['ra'],f[i]['dec']
+			ral.append(ra)
+			decl.append(dec)
+			zl.append(z)
+			fkpweightl.append(fkpw)
+			sysweightl.append(wsys) 
+			gdepthl.append(f[i]['galdepth_g'])	
+			compl.append(comp)		
+	print sum(sysweightl)/10000.
+	print len(ral)
+	ral = np.array(ral)
+	decl = np.array(decl)
+	zl = np.array(zl)
+	fkpweightl = np.array(fkpweightl)
+	sysweightl = np.array(sysweightl)
+	compl = np.array(compl)
+	cols = []
+	RAc = fits.Column(name='RA',format='D', array=ral)
+	cols.append(RAc)
+	DECc = fits.Column(name='DEC',format='D', array=decl)
+	cols.append(DECc)
+	Zc = fits.Column(name='Z',format='D', array=zl)
+	cols.append(Zc)
+	fkpc = fits.Column(name='WEIGHT_FKP',format='D', array=fkpweightl)
+	cols.append(fkpc)
+	sysc = fits.Column(name='WEIGHT_SYSTOT',format='D', array=sysweightl)
+	cols.append(sysc)
+	dc = fits.Column(name='galdepth_g',format='D', array=gdepthl)
+	cols.append(dc)	
+	cc = fits.Column(name='COMP',format='D', array=compl)
+	cols.append(cc)
+	hdulist = fits.BinTableHDU.from_columns(cols)
+	header = hdulist.header
+	hdulist.writeto(dir+'ELG'+reg+vo+cp+'.ran.fits', overwrite=True)
 
 	return True
 
-def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
+def mkranELG_zgdepth(reg='SGC',v='v5_10_7',complim=0.5,vo='test',sub=1,cp='cp'):
 	#set sub to greater integer values if you want to test things
 	from random import random
 	if reg == 'SGC':
@@ -242,7 +332,7 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 	if reg == 'NGC':
 		chunkl = ['eboss23','eboss25']			
 	ffkp = np.loadtxt('nbarELG'+reg+v+'.dat').transpose()
-	dat = fitsio.read(dir+'ELG'+reg+vo+'.dat.fits')
+	dat = fitsio.read(dir+'ELG'+reg+vo+cp+'.dat.fits')
 	dat.sort(order='galdepth_g')
 	depthl  = [] #subsample by factor of 100 to make smaller list to get percentiles
 	ndep = 0
@@ -251,25 +341,33 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 		ndep += 1.
 	depthl = np.array(depthl)
 	gdepthl = [] #list to write back out
+	compf = np.loadtxt('ELG'+reg+'compstats'+vo+'.dat').transpose()
+	sec0 = compf[0][0]
+
 	print len(dat['Z'])
 	ral = []
 	decl = []
 	zl = []
 	fkpweightl = []
 	sysweightl = []
+	compl = []
 	#for j in range(0,len(chunkl)):
 	#f = fits.open(dir+'eboss'+chunkl[j]+'.'+v+'.latest.fits')[1].data
 	#f = fitsio.read(dir+'eboss'+chunkl[j]+'.'+v+'.latest.rands.fits')
 	f = fitsio.read(dir+'ELG.'+v+'.latest.rands.fits')
-	print len(f), compl
+	print len(f), complim
 	ndat = dat.size
 	for i in range(0,len(f),sub):
 		#z = f.Z[i]
 		kc = 0
 		if f[i]['chunk'] == chunkl[0] or f[i]['chunk'] == chunkl[1]:
 			kc = 1		
-
-		if f[i]['sector_TSR'] >= compl and kc == 1:
+		sec = f[i]['sector']
+		if cp == '':
+			comp = compf[1][sec-sec0]
+		if cp == 'cp':
+			comp = compf[2][sec-sec0]
+		if comp >= complim and kc == 1:
 			depth = f[i]['galdepth_g']
 			#per = dat[dat['galdepth_g']>depth].size/float(ndat)
 			per = 1.-depthl[depthl>depth].size/ndep
@@ -306,7 +404,7 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 				indz = indz -1
 			z = dat[indd+indz]['Z']
 			fkpw = dat[indd+indz]['WEIGHT_FKP']
-			wsys = dat[indd+indz]['WEIGHT_SYSTOT']*f[i]['sector_TSR']#*f[i]['plate_SSR']
+			wsys = dat[indd+indz]['WEIGHT_SYSTOT']*comp#*f[i]['plate_SSR']
 			ra,dec = f[i]['ra'],f[i]['dec']
 			gdepthl.append(f[i]['galdepth_g'])	
 			ral.append(ra)
@@ -314,6 +412,8 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 			zl.append(z)
 			fkpweightl.append(fkpw)
 			sysweightl.append(wsys) 
+			compl.append(comp)
+			
 	print sum(sysweightl)/10000.
 	print len(ral)
 	ral = np.array(ral)
@@ -322,6 +422,7 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 	fkpweightl = np.array(fkpweightl)
 	sysweightl = np.array(sysweightl)
 
+	compl = np.array(compl)
 	cols = []
 	RAc = fits.Column(name='RA',format='D', array=ral)
 	cols.append(RAc)
@@ -334,11 +435,13 @@ def mkranELG_zgdepth(reg='SGC',v='v5_10_7',compl=0.5,vo='test',sub=1):
 	sysc = fits.Column(name='WEIGHT_SYSTOT',format='D', array=sysweightl)
 	cols.append(sysc)
 	dc = fits.Column(name='galdepth_g',format='D', array=gdepthl)
-	cols.append(dc)
+	cols.append(dc)	
+	cc = fits.Column(name='COMP',format='D', array=compl)
+	cols.append(cc)
 	
 	hdulist = fits.BinTableHDU.from_columns(cols)
 	header = hdulist.header
-	hdulist.writeto(dir+'ELG'+reg+vo+'gdepth.ran.fits', overwrite=True)
+	hdulist.writeto(dir+'ELG'+reg+vo+cp+'gdepth.ran.fits', overwrite=True)
 
 	return True
 
